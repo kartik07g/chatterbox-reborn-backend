@@ -26,11 +26,14 @@ class MessageOut(BaseModel):
     class Config:
         orm_mode = True
 
-class ChatSessionResponse(BaseModel):
+class CreateChatRequest(BaseModel):
     partner_id: int
-    partner_name: str
-    last_message: str
-    last_message_time: datetime
 
-    class Config:
-        orm_mode = True
+class ChatSessionResponse(BaseModel):
+    id: int
+    partnerId: int
+    partnerName: str
+    partnerAvatar: str
+    lastMessage: str | None
+    lastMessageTime: datetime
+    unreadCount: int

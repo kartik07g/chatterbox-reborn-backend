@@ -3,13 +3,14 @@ from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from database import engine, SessionLocal, Base
-from models import User, Message
+from models import User, Message, ChatSession
 from schemas import UserCreate, MessageCreate, UserLogin, ChatSessionResponse
 from crud import create_user, get_user_by_email, create_message, get_messages_between_users, verify_password
 from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer
 from datetime import datetime, timedelta
 from fastapi import status
+import random
 
 Base.metadata.create_all(bind=engine)
 
@@ -122,3 +123,41 @@ def get_chat_sessions(db: Session = Depends(get_db), user: User = Depends(get_cu
                 last_message_time=info["last_message_time"]
             ))
     return chat_sessions
+
+
+@app.post("/new_chats/", response_model=ChatSessionResponse)
+def start_random_chat(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Get all other users
+    other_users = db.query(User).filter(User.id != current_user.id).all()
+    if not other_users:
+        raise HTTPException(status_code=404, detail="No other users available")
+
+    # Pick a random partner
+    partner = random.choice(other_users)
+
+    # Check for existing chat
+    existing_chat = db.query(ChatSession).filter(
+        ((ChatSession.user1_id == current_user.id) & (ChatSession.user2_id == partner.id)) |
+        ((ChatSession.user1_id == partner.id) & (ChatSession.user2_id == current_user.id))
+    ).first()
+
+    if existing_chat:
+        chat = existing_chat
+    else:
+        chat = ChatSession(user1_id=current_user.id, user2_id=partner.id)
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
+
+    return ChatSessionResponse(
+        id=chat.id,
+        partnerId=partner.id,
+        partnerName=partner.fullname,
+        partnerAvatar="",
+        lastMessage="Start a conversation...",
+        lastMessageTime=chat.created_at,
+        unreadCount=0,
+    )
