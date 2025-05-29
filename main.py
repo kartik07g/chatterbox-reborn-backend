@@ -6,10 +6,12 @@ from database import engine, SessionLocal, Base
 from models import User, Message, ChatSession
 from schemas import UserCreate, MessageCreate, UserLogin, ChatSessionResponse
 from crud import create_user, get_user_by_email, create_message, get_messages_between_users, verify_password
+from fastapi import WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer
 from datetime import datetime, timedelta
 from fastapi import status
+from typing import List
 import random
 
 Base.metadata.create_all(bind=engine)
@@ -56,6 +58,27 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def send_personal_message(self, message: str, websocket: WebSocket):
+        await websocket.send_text(message)
+
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            await connection.send_text(message)
+
+manager = ConnectionManager()
+
+
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
@@ -95,6 +118,17 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
             "avatar": ""
         }
     }
+
+@app.websocket("/ws/chat/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: int):
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Optionally store in DB here
+            await manager.broadcast(f"User {user_id} says: {data}")
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
 
 @app.get("/chats/", response_model=list[ChatSessionResponse])
 def get_chat_sessions(db: Session = Depends(get_db), user: User = Depends(get_current_user)):

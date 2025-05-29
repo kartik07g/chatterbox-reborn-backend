@@ -16,7 +16,7 @@ class MessageCreate(BaseModel):
     receiver_id: int
     content: str
 
-class MessageOut(BaseModel):
+class MessageResponse(BaseModel):
     id: int
     sender_id: int
     receiver_id: int
